@@ -441,5 +441,5 @@ int main(int argc, char *argv[])
     // Never returns
     PIN_StartProgram();
 
-    return 0;
+    return 70;
 }
