@@ -65,8 +65,10 @@ KNOB<UINT32> StartupMode(KNOB_MODE_WRITEONCE, "pintool",
     "s", "1", "Mode for configuring profile behavior, 1 = start enabled, 0 = start disabled, 2 = attempt auto detect");
 KNOB<UINT32> InterceptMultiLevelMemory(KNOB_MODE_WRITEONCE, "pintool",
     "m", "1", "Should intercept multi-level memory allocations, copies and frees, 1 = start enabled, 0 = start disabled");
+KNOB<string> UseMallocMap(KNOB_MODE_WRITEONCE, "pintool",
+    "u", "", "Should intercept malloc flags and interpret using a malloc map: specify filename or leave blank for disabled");
 KNOB<UINT32> KeepMallocStackTrace(KNOB_MODE_WRITEONCE, "pintool",
-    "k", "1", "Should keep shadow stack and dump on malloc calls. 1 = enabled, 0 = disabled");
+    "k", "0", "Should keep shadow stack and dump on malloc calls. 1 = enabled, 0 = disabled");
 KNOB<UINT32> DefaultMemoryPool(KNOB_MODE_WRITEONCE, "pintool",
     "d", "0", "Default SST Memory Pool");
 
@@ -92,6 +94,11 @@ std::vector< std::set<ADDRINT> > instPtrsList;
 UINT32 overridePool;
 bool shouldOverride;
 
+// For mlm stuff
+// Map each location ID to the set of repeats that should go to fast mem
+set<int64_t> fastmemlocs;
+// Flag whether to send next intercept malloc to fast memory or not
+pair<bool,int> * toFast;
 
 /****************************************************************/
 /********************** SHADOW STACK ****************************/
@@ -541,6 +548,17 @@ void mapped_ariel_output_stats_buoy(uint64_t marker) {
     tunnel->writeMessage(0, ac);
 }
 
+
+void mapped_ariel_malloc_flag(int64_t mallocLocId, int count) {
+    // Set malloc flag for this thread
+    THREADID thr = PIN_ThreadId();
+    if (fastmemlocs.find(mallocLocId) != fastmemlocs.end()) {
+        toFast[thr] = std::make_pair(true, count);
+    } else {
+        toFast[thr].first = false;
+    }
+}
+
 #if ! defined(__APPLE__)
 int mapped_clockgettime(clockid_t clock, struct timespec *tp) {
     if (tp == NULL) { errno = EINVAL; return -1; }
@@ -717,7 +735,7 @@ VOID ariel_premalloc_instrument(ADDRINT allocSize, ADDRINT ip) {
 }
 
 VOID ariel_postmalloc_instrument(ADDRINT allocLocation) {
-    if(lastMallocSize >= 0) {
+    if (lastMallocSize >= 0) {
         THREADID currentThread = PIN_ThreadId();
         UINT32 thr = (UINT32) currentThread;
 		
@@ -741,8 +759,12 @@ VOID ariel_postmalloc_instrument(ADDRINT allocLocation) {
         ac.mlm_map.alloc_len = allocationLength;
 
 
-        if(shouldOverride) {
+        if (shouldOverride && toFast[thr].first) {
             ac.mlm_map.alloc_level = overridePool;
+            toFast[thr].second--;
+            if (toFast[thr].second == 0) {
+                toFast[thr].first = false;
+            }
         } else {
             ac.mlm_map.alloc_level = allocationLevel;
         }
@@ -832,7 +854,7 @@ VOID InstrumentRoutine(RTN rtn, VOID* args) {
                        IARG_END);
 
         RTN_Close(rtn);
-    } else if ((InterceptMultiLevelMemory.Value() > 0) && (
+    } else if ((InterceptMultiLevelMemory.Value() > 0) && ( 
                 RTN_Name(rtn) == "free" || RTN_Name(rtn) == "_free" || RTN_Name(rtn) == "__libc_free" || RTN_Name(rtn) == "_gfortran_free")) {
 
         fprintf(stderr, "Identified routine: free/_free, replacing with Ariel equivalent...\n");
@@ -854,8 +876,21 @@ VOID InstrumentRoutine(RTN rtn, VOID* args) {
         RTN_Replace(rtn, (AFUNPTR) mapped_ariel_output_stats_buoy);
         fprintf(stderr, "Replacement complete\n");
         return;
+    } else if (UseMallocMap.Value() != "" && (RTN_Name(rtn) == "ariel_malloc_flag" || RTN_Name(rtn) == "_ariel_malloc_flag" || RTN_Name(rtn) == "__arielfort_MOD_ariel_malloc_flag")) {
+        fprintf(stderr, "Identified routine: ariel_malloc_flag, replacing with Ariel equivalent..\n");
+        RTN_Replace(rtn, (AFUNPTR) mapped_ariel_malloc_flag);
+        return;
     }
 
+}
+
+void loadFastMemLocations() {
+    std::ifstream infile(UseMallocMap.Value().c_str());
+    int64_t val;
+    while (infile >> val) {
+        fastmemlocs.insert(val);
+    }
+    infile.close();
 }
 
 
@@ -972,6 +1007,13 @@ int main(int argc, char *argv[])
     // Instrument traces to capture stack
     if (KeepMallocStackTrace.Value() == 1)
         TRACE_AddInstrumentFunction(InstrumentTrace, 0);
+    if (UseMallocMap.Value() != "") {
+        loadFastMemLocations();
+    } 
+    toFast = (std::pair<bool,int>*) malloc(sizeof(std::pair<bool,int>) * core_count);
+    for (int i = 0; i < core_count; i++) {
+        toFast[i] = std::make_pair(false,0);
+    }
 
     fprintf(stderr, "ARIEL: Starting program.\n");
     fflush(stdout);

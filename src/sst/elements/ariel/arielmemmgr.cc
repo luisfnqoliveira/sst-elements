@@ -62,6 +62,7 @@ ArielMemoryManager::ArielMemoryManager(SST::Component* ownMe,
 
 	translationCache = new std::unordered_map<uint64_t, uint64_t>();
 
+
 	statTranslationCacheHits    = owner->registerStatistic<uint64_t>("tlb_hits");
 	statTranslationCacheEvict   = owner->registerStatistic<uint64_t>("tlb_evicts");
 	statTranslationQueries      = owner->registerStatistic<uint64_t>("tlb_translate_queries");
@@ -191,6 +192,73 @@ void ArielMemoryManager::allocate(const uint64_t size, const uint32_t level, con
 	pageAllocations[level]->insert( std::pair<uint64_t, uint64_t>(virtualAddress, roundedSize) );
 }
 
+bool ArielMemoryManager::allocateMalloc(const uint64_t size, const uint32_t level, const uint64_t virtualAddress) {
+    
+    // Check whether a malloc mapping exists (i.e., we missed a free)
+    std::map<uint64_t, uint64_t>::iterator it = mallocTranslations.upper_bound(virtualAddress);
+    if (it == mallocTranslations.begin()) {
+        it = mallocTranslations.end();
+    } else if (!mallocTranslations.empty()) {
+        it--;
+    }
+    if ( it != mallocTranslations.end() && it->first <= virtualAddress) {
+        uint64_t primaryAddr = mallocPrimaryVAMap.find(it->first)->second;
+        if (virtualAddress < primaryAddr + (mallocInformation.find(primaryAddr)->second).size) {
+            freeMalloc(primaryAddr);
+        }
+    }
+
+    // Allocate new page(s)
+    // Determine how many pages we need
+    uint64_t pageCount = size / pageSizes[level];
+    if (size % pageSizes[level] != 0)
+        pageCount++;
+    // Check that enough pages are available
+    if (freePages[level]->size() < pageCount) {
+        return false;
+        //output->fatal(CALL_INFO, -1, "Requested a memory allocation at level: %" PRIu32 " of size: %" PRIu64 " which failed due to not having enough free pages\n", level, size);
+    }
+
+    // Allocate pages
+    std::unordered_set<uint64_t>* virtualPages = new std::unordered_set<uint64_t>; 
+    uint64_t nextVirtPage = virtualAddress;
+    for (uint64_t i = 0; i != pageCount; i++) {
+        uint64_t nextPhysPage = freePages[level]->front();
+        mallocTranslations.insert(std::make_pair(nextVirtPage, nextPhysPage));
+        freePages[level]->pop_front();
+        virtualPages->insert(nextVirtPage);
+        mallocPrimaryVAMap.insert(std::make_pair(virtualAddress,nextVirtPage));
+        nextVirtPage += pageSizes[level];
+    }
+
+    // Record malloc
+    mallocInformation.insert(std::make_pair(virtualAddress, mallocInfo(size,level,virtualPages))); 
+
+}
+
+void ArielMemoryManager::freeMalloc(const uint64_t virtualAddress) {
+    // Lookup VA in mallocInformation
+    std::map<uint64_t, mallocInfo>::iterator it = mallocInformation.find(virtualAddress);
+    if (it == mallocInformation.end()) {
+        return;
+    }
+
+    // Remove each VA listed in mallocInformation from mallocTranslations & mallocPrimaryVAMap
+    // Free each associated PA
+    std::unordered_set<uint64_t>* myKeys = (it->second).VAKeys;
+    for (std::unordered_set<uint64_t>::iterator vaIt = myKeys->begin(); vaIt != myKeys->end(); vaIt++) {
+        // Remove entry in mallocPrimaryVAMap
+        mallocPrimaryVAMap.erase(*vaIt);
+        // Free PA for this VA
+        freePages[(it->second).level]->push_back(mallocTranslations.find(*vaIt)->second);
+        mallocTranslations.erase(*vaIt);
+    }
+
+    // Finally remove mallocInformation entry
+    delete myKeys;
+    mallocInformation.erase(virtualAddress);
+}
+
 uint32_t ArielMemoryManager::countMemoryLevels() {
 	return memoryLevels;
 }
@@ -255,6 +323,23 @@ uint64_t ArielMemoryManager::translateAddress(uint64_t virtAddr) {
 		statTranslationCacheHits->addData(1);
 		return checkCache->second;
 	}
+
+        // Check mallocs
+        std::map<uint64_t, uint64_t>::iterator it = mallocTranslations.upper_bound(virtAddr);
+        if (it == mallocTranslations.begin()) {
+            it = mallocTranslations.end();
+        } else if (!mallocTranslations.empty()) {
+            it--;
+        }
+        
+        if (it != mallocTranslations.end() && it->first <= virtAddr) {
+            uint64_t primaryAddr = mallocPrimaryVAMap.find(it->first)->second;
+            if (virtAddr < primaryAddr + (mallocInformation.find(primaryAddr)->second).size) {
+                uint64_t offset = virtAddr - it->first;
+                physAddr = offset + it->second;
+                found = true;
+            }
+        }
 
 	// We will have to search every memory level to find where the address lies
 	for(uint32_t i = 0; i < memoryLevels; ++i) {

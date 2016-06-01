@@ -26,10 +26,10 @@
 #include <time.h>
 
 #include <string.h>
-
+    
 #define ARIEL_INNER_STRINGIZE(input) #input
 #define ARIEL_STRINGIZE(input) ARIEL_INNER_STRINGIZE(input)
-
+    
 using namespace SST::ArielComponent;
 
 ArielCPU::ArielCPU(ComponentId_t id, Params& params) :
@@ -150,13 +150,20 @@ ArielCPU::ArielCPU(ComponentId_t id, Params& params) :
     uint32_t keep_malloc_stack_trace = (uint32_t) params.find<uint32_t>("arielstack", 0);
     output->verbose(CALL_INFO, 1, 0, "Tracking the stack and dumping on malloc calls is %s.\n", 
             keep_malloc_stack_trace == 1 ? "ENABLED" : "DISABLED");
+    
+    std::string malloc_map_filename = params.find<std::string>("mallocmapfile", ""); 
+    if (malloc_map_filename == "") {
+        output->verbose(CALL_INFO, 1, 0, "Malloc map file is DISABLED\n");
+    } else {
+        output->verbose(CALL_INFO, 1, 0, "Malloc map file is ENABLED, using file '%s'\n", malloc_map_filename.c_str());
+    }
 
     tunnel = new ArielTunnel(shmem_region_name, core_count, maxCoreQueueLen);
 
     appLauncher = params.find<std::string>("launcher", ARIEL_STRINGIZE(PINTOOL_EXECUTABLE));
 
     const uint32_t launch_param_count = (uint32_t) params.find<uint32_t>("launchparamcount", 0);
-    const uint32_t pin_arg_count = 25 + launch_param_count;
+    const uint32_t pin_arg_count = 27 + launch_param_count;
 
     execute_args = (char**) malloc(sizeof(char*) * (pin_arg_count + app_argc));
 
@@ -222,6 +229,9 @@ ArielCPU::ArielCPU(ComponentId_t id, Params& params) :
     execute_args[arg++] = const_cast<char*>("-d");
     execute_args[arg++] = (char*) malloc(sizeof(char) * 8);
     sprintf(execute_args[arg-1], "%" PRIu32, default_level);
+    execute_args[arg++] = const_cast<char*>("-u");
+    execute_args[arg++] = (char*) malloc(sizeof(char) * (malloc_map_filename.size() + 1));
+    strcpy(execute_args[arg-1], malloc_map_filename.c_str());
     execute_args[arg++] = const_cast<char*>("--");
     execute_args[arg++] = (char*) malloc(sizeof(char) * (executable.size() + 1));
     strcpy(execute_args[arg-1], executable.c_str());

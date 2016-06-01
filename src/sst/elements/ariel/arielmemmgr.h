@@ -34,6 +34,8 @@ class ArielMemoryManager {
 		~ArielMemoryManager();
 		void allocate(const uint64_t size, const uint32_t level, const uint64_t virtualAddress);
 		void free(const uint64_t vAddr);
+		void freeMalloc(const uint64_t vAddr);
+		bool allocateMalloc(const uint64_t size, const uint32_t level, const uint64_t virtualAddress);
 
 		uint32_t countMemoryLevels();
 		uint64_t translateAddress(uint64_t virtAddr);
@@ -64,6 +66,17 @@ class ArielMemoryManager {
 		const uint32_t translationCacheEntries;
 		bool translationEnabled;
 		bool reportUnmatchedFree;
+
+                // Malloc mapping structures
+                struct mallocInfo {
+                    uint64_t size;
+                    uint32_t level;
+                    std::unordered_set<uint64_t>* VAKeys;
+                    mallocInfo(uint64_t size, uint32_t level, std::unordered_set<uint64_t>* VAKeys) : size(size), level(level), VAKeys(VAKeys) {};
+                };
+                std::map<uint64_t, uint64_t> mallocPrimaryVAMap;        // Map VA of each PA to the primary VA of the malloc -> used to find the mallocInfo
+                std::map<uint64_t, uint64_t> mallocTranslations;    // Map VA to PA for mallocs -> primary lookup
+                std::map<uint64_t, mallocInfo> mallocInformation;   // Map mallocID to information about the malloc -> use for frees/allocs
 };
 
 }
