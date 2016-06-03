@@ -204,6 +204,7 @@ bool ArielMemoryManager::allocateMalloc(const uint64_t size, const uint32_t leve
     if ( it != mallocTranslations.end() && it->first <= virtualAddress) {
         uint64_t primaryAddr = mallocPrimaryVAMap.find(it->first)->second;
         if (virtualAddress < primaryAddr + (mallocInformation.find(primaryAddr)->second).size) {
+	    output->verbose(CALL_INFO, 4, 0, "Found conflicting malloc, freeing address %" PRIu64 "\n", primaryAddr);
             freeMalloc(primaryAddr);
         }
     }
@@ -222,22 +223,26 @@ bool ArielMemoryManager::allocateMalloc(const uint64_t size, const uint32_t leve
     // Allocate pages
     std::unordered_set<uint64_t>* virtualPages = new std::unordered_set<uint64_t>; 
     uint64_t nextVirtPage = virtualAddress;
+    uint64_t firstPhysAddr, lastPhysAddr;
+    firstPhysAddr = freePages[level]->front();
     for (uint64_t i = 0; i != pageCount; i++) {
         uint64_t nextPhysPage = freePages[level]->front();
         mallocTranslations.insert(std::make_pair(nextVirtPage, nextPhysPage));
+        mallocPrimaryVAMap.insert(std::make_pair(nextVirtPage, virtualAddress));
         freePages[level]->pop_front();
         virtualPages->insert(nextVirtPage);
-        mallocPrimaryVAMap.insert(std::make_pair(virtualAddress,nextVirtPage));
         nextVirtPage += pageSizes[level];
+        lastPhysAddr = nextPhysPage;
     }
+    output->verbose(CALL_INFO, 4, 0, "Malloc mapped %" PRIu64 " to [%" PRIu64 ", %" PRIu64 "] (%u pages).\n", virtualAddress, firstPhysAddr, lastPhysAddr, pageCount);
 
     // Record malloc
     mallocInformation.insert(std::make_pair(virtualAddress, mallocInfo(size,level,virtualPages))); 
-
 }
 
 void ArielMemoryManager::freeMalloc(const uint64_t virtualAddress) {
     // Lookup VA in mallocInformation
+    output->verbose(CALL_INFO, 4, 0, "Freeing %" PRIu64 "\n");
     std::map<uint64_t, mallocInfo>::iterator it = mallocInformation.find(virtualAddress);
     if (it == mallocInformation.end()) {
         return;
@@ -332,12 +337,13 @@ uint64_t ArielMemoryManager::translateAddress(uint64_t virtAddr) {
             it--;
         }
         
-        if (it != mallocTranslations.end() && it->first <= virtAddr) {
+        if (it != mallocTranslations.end() && (it->first <= virtAddr)) {
             uint64_t primaryAddr = mallocPrimaryVAMap.find(it->first)->second;
-            if (virtAddr < primaryAddr + (mallocInformation.find(primaryAddr)->second).size) {
+            if (virtAddr < (primaryAddr + (mallocInformation.find(primaryAddr)->second).size)) {
                 uint64_t offset = virtAddr - it->first;
                 physAddr = offset + it->second;
                 found = true;
+                output->verbose(CALL_INFO, 4, 0, "Page Table: malloc address match\n");
             }
         }
 

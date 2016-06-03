@@ -549,9 +549,20 @@ void mapped_ariel_output_stats_buoy(uint64_t marker) {
 }
 
 
-void mapped_ariel_malloc_flag(int64_t mallocLocId, int count) {
-    // Set malloc flag for this thread
+void mapped_ariel_malloc_flag_fortran(int* mallocLocId, int* count) {
     THREADID thr = PIN_ThreadId();
+    int64_t id = (int64_t) *mallocLocId;
+    // Set malloc flag for this thread
+    if (fastmemlocs.find(id) != fastmemlocs.end()) {
+        toFast[thr] = std::make_pair(true, *count);
+    } else {
+        toFast[thr].first = false;
+    }
+}
+void mapped_ariel_malloc_flag(int64_t mallocLocId, int count) {
+    THREADID thr = PIN_ThreadId();
+    
+    // Set malloc flag for this thread
     if (fastmemlocs.find(mallocLocId) != fastmemlocs.end()) {
         toFast[thr] = std::make_pair(true, count);
     } else {
@@ -760,15 +771,16 @@ VOID ariel_postmalloc_instrument(ADDRINT allocLocation) {
 
 
         if (shouldOverride && toFast[thr].first) {
-            ac.mlm_map.alloc_level = overridePool;
+            ac.mlm_map.alloc_level = (uint32_t) overridePool;
             toFast[thr].second--;
             if (toFast[thr].second == 0) {
                 toFast[thr].first = false;
             }
-        } else {
+            tunnel->writeMessage(thr, ac);
+        } else if (InterceptMultiLevelMemory.Value() == 1) {
             ac.mlm_map.alloc_level = allocationLevel;
+            tunnel->writeMessage(thr, ac);
         }
-        tunnel->writeMessage(thr, ac);
         
     	/*printf("ARIEL: Created a malloc of size: %" PRIu64 " in Ariel\n",
          * (UINT64) allocationLength);*/
@@ -876,10 +888,18 @@ VOID InstrumentRoutine(RTN rtn, VOID* args) {
         RTN_Replace(rtn, (AFUNPTR) mapped_ariel_output_stats_buoy);
         fprintf(stderr, "Replacement complete\n");
         return;
-    } else if (UseMallocMap.Value() != "" && (RTN_Name(rtn) == "ariel_malloc_flag" || RTN_Name(rtn) == "_ariel_malloc_flag" || RTN_Name(rtn) == "__arielfort_MOD_ariel_malloc_flag")) {
+    } else if (UseMallocMap.Value() != "") {
+        if (RTN_Name(rtn) == "ariel_malloc_flag" || RTN_Name(rtn) == "_ariel_malloc_flag") {
+        
         fprintf(stderr, "Identified routine: ariel_malloc_flag, replacing with Ariel equivalent..\n");
         RTN_Replace(rtn, (AFUNPTR) mapped_ariel_malloc_flag);
         return;
+
+     } else if (RTN_Name(rtn) == "__arielfort_MOD_ariel_malloc_flag") {
+        fprintf(stderr, "Identified routine: ariel_malloc_flag, replacing with Ariel equivalent..\n");
+        RTN_Replace(rtn, (AFUNPTR) mapped_ariel_malloc_flag_fortran);
+        return;
+     }
     }
 
 }
