@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PINDIR=/Users/sdhammo/Documents/PIN/2.13
+PINDIR=$(INTEL_PIN_DIRECTORY)
 CXX=clang++
 LD=clang++
 CC=clang
