@@ -382,7 +382,7 @@ int ArielCPU::forkPINChild(const char* app, char** args, std::map<std::string, s
 
 	full_execute_line[next_line_index] = '\0';
 
-	output->verbose(CALL_INFO, 2, 0, "Executing PIN command: %s\n", full_execute_line);
+	output->verbose(CALL_INFO, 1, 0, "Executing PIN command: %s\n", full_execute_line);
 	free(full_execute_line);
 
 	pid_t the_child;
@@ -398,10 +398,12 @@ int ArielCPU::forkPINChild(const char* app, char** args, std::map<std::string, s
 	if(the_child != 0) {
 		// This is the parent, return the PID of our child process
         /* Wait a second, and check to see that the child actually started */
+	output->verbose(CALL_INFO, 1, 0, "JOHN:  Fork has occured, the child is %d\n", the_child);
         sleep(1);
         int pstat;
         pid_t check = waitpid(the_child, &pstat, WNOHANG);
         if ( check > 0 ) {
+	    output->verbose(CALL_INFO, 1, 0, "JOHN: waitpid returned %d, and pstat = %d\n", check, pstat ); 
             output->fatal(CALL_INFO, 1,
                     "Launching trace child failed!  Exited with status %d\n",
                     WEXITSTATUS(pstat));
@@ -442,7 +444,7 @@ int ArielCPU::forkPINChild(const char* app, char** args, std::map<std::string, s
 				char* execute_env_nv_pair = (char*) malloc(sizeof(char) * (2 +
 					env_itr->first.size() + env_itr->second.size()));
 
-				output->verbose(CALL_INFO, 2, 0, "Env: %s=%s\n",
+				output->verbose(CALL_INFO, 1, 0, "Env: %s=%s\n",
 					env_itr->first.c_str(), env_itr->second.c_str());
 
 				sprintf(execute_env_nv_pair, "%s=%s", env_itr->first.c_str(),
