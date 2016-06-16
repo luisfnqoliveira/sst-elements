@@ -464,7 +464,7 @@ int ArielCPU::forkPINChild(const char* app, char** args, std::map<std::string, s
 		}
 	}
 
-	return 0;
+	return (int) the_child;
 }
 
 bool ArielCPU::tick( SST::Cycle_t cycle) {
