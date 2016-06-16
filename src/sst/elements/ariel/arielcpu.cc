@@ -330,6 +330,7 @@ void ArielCPU::init(unsigned int phase)
 {
     if ( phase == 0 ) {
         output->verbose(CALL_INFO, 1, 0, "Launching PIN...\n");
+        child_pid = 0;
         child_pid = forkPINChild(appLauncher.c_str(), execute_args, execute_env);
         output->verbose(CALL_INFO, 1, 0, "Returned from launching PIN.  Waiting for child to attach.\n");
 
@@ -508,7 +509,9 @@ ArielCPU::~ArielCPU() {
 void ArielCPU::emergencyShutdown() {
     tunnel->shutdown(true);
     unlink(shmem_region_name);
-    kill(child_pid, SIGKILL);
+    if [ child_pid !=0 ] ; then
+        kill(child_pid, SIGKILL);
+    fi    
 
     /* Ask the cores to finish up.  This should flush logging */
 	for(uint32_t i = 0; i < core_count; ++i) {
