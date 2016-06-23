@@ -197,8 +197,12 @@ void Sieve::outputStats(int marker) {
             entriesToErase.push_back(i->first);
             continue;
         }
-        output_file->output(CALL_INFO, "%#" PRIu64 " %" PRId64 " %" PRId64 " \n", 
-			    i->first, counts.first, counts.second);
+        double density = double(counts.first + counts.second) / double(ev->getAllocateLength());
+        output_file->output(CALL_INFO, "%#" PRIx64 " %" PRIu64 " %" PRId64 " %" PRId64 " %" PRId64 " %.3f\n", 
+			    ev->getVirtualAddress(), 
+			    ev->getInstructionPointer(), 
+			    ev->getAllocateLength(),
+			    counts.first, counts.second, density);
 
         // clear the counts
         if (resetStatsOnOutput) {

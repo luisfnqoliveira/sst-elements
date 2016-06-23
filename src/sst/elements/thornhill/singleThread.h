@@ -25,8 +25,7 @@ class SingleThread : public DetailedCompute {
 
   public:
 
-    SingleThread( Component* owner, Params& params, 
-                                            std::string name ="" );
+    SingleThread( Component* owner, Params& params );
 
     ~SingleThread(){};
 
@@ -34,6 +33,10 @@ class SingleThread : public DetailedCompute {
 						std::pair< std::string, SST::Params > >&, 
                  std::function<int()> );
     virtual bool isConnected() { return ( m_link ); }
+	
+	virtual std::string getModelName() {
+		return "thornhill.SingleThread";
+	}
 
   private:
     void eventHandler( SST::Event* ev ); 
