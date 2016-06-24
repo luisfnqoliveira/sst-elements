@@ -188,7 +188,7 @@ void Sieve::outputStats(int marker) {
     Output* output_file = new Output("",0,0,SST::Output::FILE, fileName.str());
 
     // print out all the allocations and how often they were touched
-    output_file->output(CALL_INFO, "#Printing out allocation hits (addr, mallocID, len, reads, writes, 'density'):\n");
+    output_file->output(CALL_INFO, "#Printing allocation memory accesses (mallocID, reads, writes):\n");
     vector<uint64_t> entriesToErase;
     for (allocCountMap_t::iterator i = allocMap.begin(); i != allocMap.end(); i++) {
 	rwCount_t &counts = i->second;
@@ -197,13 +197,9 @@ void Sieve::outputStats(int marker) {
             entriesToErase.push_back(i->first);
             continue;
         }
-        double density = double(counts.first + counts.second) / double(ev->getAllocateLength());
-        output_file->output(CALL_INFO, "%#" PRIx64 " %" PRIu64 " %" PRId64 " %" PRId64 " %" PRId64 " %.3f\n", 
-			    ev->getVirtualAddress(), 
-			    ev->getInstructionPointer(), 
-			    ev->getAllocateLength(),
-			    counts.first, counts.second, density);
-
+        output_file->output(CALL_INFO, "%" PRIu64 " %" PRId64 " %" PRId64 "\n",
+                            i->first, counts.first, counts.second);
+        
         // clear the counts
         if (resetStatsOnOutput) {
             counts.first = 0;

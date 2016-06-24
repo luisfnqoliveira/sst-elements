@@ -142,6 +142,11 @@ void ArielMemoryManager::cacheTranslation(uint64_t virtualA, uint64_t physicalA)
 	translationCache->insert(std::pair<uint64_t, uint64_t>(virtualA, physicalA));
 }
 
+bool ArielMemoryManager::canAllocateInLevel(const uint64_t size, const uint32_t level) {
+    int pageCount = size / pageSizes[level] + ((size % pageSizes[level] == 0) ? 0 : 1);
+    return freePages[level]->size() >= pageCount;
+}
+
 void ArielMemoryManager::allocate(const uint64_t size, const uint32_t level, const uint64_t virtualAddress) {
 	if(level >= memoryLevels) {
 		output->fatal(CALL_INFO, -1, "Requested memory allocation of %" PRIu64 " bytes, in level: %" PRIu32 ", but only have: %" PRIu32 " levels.\n",
@@ -385,7 +390,23 @@ uint64_t ArielMemoryManager::translateAddress(uint64_t virtAddr) {
 			virtAddr, offset, (virtAddr - offset));
 
 		// Perform an allocation so we can then re-find the address
-		allocate(8, defaultLevel, virtAddr - offset);
+		// Attempt defaultLevel but fall through to other levels if needed & available
+                if (canAllocateInLevel(8, defaultLevel)) {
+                    allocate(8, defaultLevel, virtAddr - offset);
+                } else {
+                    bool allocated = false;
+                    for (uint32_t i = 0; i < memoryLevels; i++) {
+                        if (canAllocateInLevel(8, i)) {
+                            allocate(8, i, virtAddr - offset);
+                            allocated = true;
+                            break;
+                        }
+                    }
+                    if (!allocated) {
+		        output->fatal(CALL_INFO, -1, "Attempted to allocate page for address %" PRIu64 " but no free pages are available\n");
+                    }
+                }
+                allocate(8, defaultLevel, virtAddr - offset);
 
 		// Now attempt to refind it
 		const uint64_t newPhysAddr = translateAddress(virtAddr);

@@ -32,7 +32,8 @@ class ArielMemoryManager {
 		ArielMemoryManager(SST::Component* ownMe, uint32_t memoryLevels, uint64_t* pageSize, uint64_t* stdPageCount, Output* output,
 			uint32_t defLevel, uint32_t translateCacheEntryCount);
 		~ArielMemoryManager();
-		void allocate(const uint64_t size, const uint32_t level, const uint64_t virtualAddress);
+		bool canAllocateInLevel(const uint64_t size, const uint32_t level);
+                void allocate(const uint64_t size, const uint32_t level, const uint64_t virtualAddress);
 		void free(const uint64_t vAddr);
 		void freeMalloc(const uint64_t vAddr);
 		bool allocateMalloc(const uint64_t size, const uint32_t level, const uint64_t virtualAddress);
