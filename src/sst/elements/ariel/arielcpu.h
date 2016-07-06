@@ -54,6 +54,7 @@ class ArielCPU : public SST::Component {
         uint32_t memory_levels;
         uint64_t* page_sizes;
         uint64_t* page_counts;
+        uint64_t* max_bytes;
         char* shmem_region_name;
         ArielTunnel* tunnel;
         bool stopTicking;

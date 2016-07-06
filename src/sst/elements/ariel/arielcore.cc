@@ -517,12 +517,8 @@ void ArielCore::handleWriteRequest(ArielWriteEvent* wEv) {
 }
 
 void ArielCore::handleAllocationEvent(ArielAllocateEvent* aEv) {
-	output->verbose(CALL_INFO, 2, 0, "Handling a memory allocation event, vAddr=%" PRIu64 ", length=%" PRIu64 ", at level=%" PRIu32 " with malloc ID=%" PRIu64 "\n",
+	output->verbose(CALL_INFO, 1, 0, "Handling a memory allocation event, vAddr=%" PRIu64 ", length=%" PRIu64 ", at level=%" PRIu32 " with malloc ID=%" PRIu64 "\n",
                         aEv->getVirtualAddress(), aEv->getAllocationLength(), aEv->getAllocationLevel(), aEv->getInstructionPointer());
-
-	// Remove because we can rely on on-demand page allocation
-	memmgr->allocateMalloc(aEv->getAllocationLength(), aEv->getAllocationLevel(), aEv->getVirtualAddress());
-        // memmgr->allocate(aEv->getAllocationLength(), aEv->getAllocationLevel(), aEv->getVirtualAddress());
 
         if (allocLink) {
 	  output->verbose(CALL_INFO, 2, 0, " Sending memory allocation event to allocate monitor\n");
@@ -535,6 +531,8 @@ void ArielCore::handleAllocationEvent(ArielAllocateEvent* aEv) {
                                            aEv->getAllocationLevel(),
                                            aEv->getInstructionPointer());
             allocLink->send(e);
+        } else {
+	    memmgr->allocateMalloc(aEv->getAllocationLength(), aEv->getAllocationLevel(), aEv->getVirtualAddress());
         }
 }
 

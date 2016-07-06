@@ -55,14 +55,18 @@ ArielCPU::ArielCPU(ComponentId_t id, Params& params) :
 
 	page_sizes = (uint64_t*) malloc( sizeof(uint64_t) * memory_levels );
 	page_counts = (uint64_t*) malloc( sizeof(uint64_t) * memory_levels );
-
-	char* level_buffer = (char*) malloc(sizeof(char) * 256);
-	for(uint32_t i = 0; i < memory_levels; ++i) {
+        max_bytes = (uint64_t*) malloc( sizeof(uint64_t) * memory_levels );
+	
+        char* level_buffer = (char*) malloc(sizeof(char) * 256);
+        for(uint32_t i = 0; i < memory_levels; ++i) {
 		sprintf(level_buffer, "pagesize%" PRIu32, i);
 		page_sizes[i] = (uint64_t) params.find<uint64_t>(level_buffer, 4096);
 
 		sprintf(level_buffer, "pagecount%" PRIu32, i);
 		page_counts[i] = (uint64_t) params.find<uint64_t>(level_buffer, 131072);
+
+                sprintf(level_buffer, "maxbytes%" PRIu32, i);
+                max_bytes[i] = (uint64_t) params.find<uint64_t>(level_buffer, page_counts[i]*page_sizes[i]);
 	}
 
 	uint32_t default_level = (uint32_t) params.find<uint32_t>("defaultlevel", 0);
@@ -70,7 +74,7 @@ ArielCPU::ArielCPU(ComponentId_t id, Params& params) :
 
 	output->verbose(CALL_INFO, 1, 0, "Creating memory manager, default allocation from %" PRIu32 " memory pool.\n", default_level);
 	memmgr = new ArielMemoryManager(this, memory_levels,
-		page_sizes, page_counts, output, default_level, translateCacheSize);
+		page_sizes, max_bytes, page_counts, output, default_level, translateCacheSize);
 
 	// Prepopulate any page tables as we find them
 	for(uint32_t i = 0; i < memory_levels; ++i) {
@@ -540,6 +544,7 @@ ArielCPU::~ArielCPU() {
         unlink(shmem_region_name);
 	free(page_sizes);
 	free(page_counts);
+        free(max_bytes);
 }
 
 void ArielCPU::emergencyShutdown() {

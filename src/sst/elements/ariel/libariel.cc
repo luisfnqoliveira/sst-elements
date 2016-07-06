@@ -87,6 +87,7 @@ static const ElementInfoParam ariel_params[] = {
     {"memorylevels", "Number of memory levels in the system", "1"},
     {"pagesize%(memorylevels)d", "Page size for memory Level x", "4096"},
     {"pagecount%(memorylevels)d", "Page count for memory Level x", "131072"},
+    {"maxbytes%(memorylevels)d", "If re-mapping mallocs, max bytes that can be allocated at Level x", "pagesize*pagecount"},
     {"page_populate_%(memorylevels)d", "Pre-populate/partially pre-populate a page table for a level in memory, this is the file to read in.", ""},
     {"defaultlevel", "Default memory level", "0"},
     {"maxissuepercycle", "Maximum number of requests to issue per cycle, per core", "1"},

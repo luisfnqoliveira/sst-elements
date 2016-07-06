@@ -17,7 +17,7 @@
 using namespace SST::ArielComponent;
 
 ArielMemoryManager::ArielMemoryManager(SST::Component* ownMe,
-		uint32_t mLevels, uint64_t* pSizes, uint64_t* stdPCounts, Output* out,
+		uint32_t mLevels, uint64_t* pSizes, uint64_t* mBytes, uint64_t* stdPCounts, Output* out,
 		uint32_t defLevel, uint32_t translateCacheEntryCount) :
 	owner(ownMe),
 	translationCacheEntries(translateCacheEntryCount),
@@ -31,9 +31,13 @@ ArielMemoryManager::ArielMemoryManager(SST::Component* ownMe,
 	output->verbose(CALL_INFO, 2, 0, "Creating a memory hierarchy of %" PRIu32 " levels.\n", mLevels);
 
 	pageSizes = (uint64_t*) malloc(sizeof(uint64_t) * memoryLevels);
-	for(uint32_t i = 0; i < mLevels; ++i) {
+	bytesAlloc = (uint64_t*) malloc(sizeof(uint64_t) * memoryLevels);
+        maxBytes = (uint64_t*) malloc(sizeof(uint64_t) * memoryLevels);
+        for(uint32_t i = 0; i < mLevels; ++i) {
 		output->verbose(CALL_INFO, 2, 0, "Level %" PRIu32 " page size is %" PRIu64 "\n", i, pSizes[i]);
 		pageSizes[i] = pSizes[i];
+                bytesAlloc[i] = 0;
+                maxBytes[i] = mBytes[i];
 	}
 
 	freePages = (std::deque<uint64_t>**) malloc( sizeof(std::deque<uint64_t>*) * mLevels );
@@ -197,8 +201,10 @@ void ArielMemoryManager::allocate(const uint64_t size, const uint32_t level, con
 	pageAllocations[level]->insert( std::pair<uint64_t, uint64_t>(virtualAddress, roundedSize) );
 }
 
+// Keep track of actual mem used -> allocate up to mem_available even if that's more pages
 bool ArielMemoryManager::allocateMalloc(const uint64_t size, const uint32_t level, const uint64_t virtualAddress) {
-    
+    output->verbose(CALL_INFO, 1, 0, "Allocated malloc received. VA: %" PRIu64 ". Size: %" PRIu64 ". Level: %" PRIu32 ".\n", virtualAddress, size, level);
+
     // Check whether a malloc mapping exists (i.e., we missed a free)
     std::map<uint64_t, uint64_t>::iterator it = mallocTranslations.upper_bound(virtualAddress);
     if (it == mallocTranslations.begin()) {
@@ -209,7 +215,7 @@ bool ArielMemoryManager::allocateMalloc(const uint64_t size, const uint32_t leve
     if ( it != mallocTranslations.end() && it->first <= virtualAddress) {
         uint64_t primaryAddr = mallocPrimaryVAMap.find(it->first)->second;
         if (virtualAddress < primaryAddr + (mallocInformation.find(primaryAddr)->second).size) {
-	    output->verbose(CALL_INFO, 4, 0, "Found conflicting malloc, freeing address %" PRIu64 "\n", primaryAddr);
+	    output->verbose(CALL_INFO, 1, 0, "Found conflicting malloc, freeing address %" PRIu64 "\n", primaryAddr);
             freeMalloc(primaryAddr);
         }
     }
@@ -221,8 +227,15 @@ bool ArielMemoryManager::allocateMalloc(const uint64_t size, const uint32_t leve
         pageCount++;
     // Check that enough pages are available
     if (freePages[level]->size() < pageCount) {
+        output->verbose(CALL_INFO, 1, 0, "Requested memory cannot be allocated, not enough pages (have: %" PRIu64 ", need: %" PRIu64 "\n", freePages[level]->size(), pageCount);
         return false;
         //output->fatal(CALL_INFO, -1, "Requested a memory allocation at level: %" PRIu32 " of size: %" PRIu64 " which failed due to not having enough free pages\n", level, size);
+    }
+    // Check that enough real space is available
+    if (bytesAlloc[level] + size > maxBytes[level]) {
+        output->verbose(CALL_INFO, 1, 0, "Requested memory cannot be allocated, not enough real space (max space: %" PRIu64 ", need: %" PRIu64 ", allocated: %" PRIu64 ")\n", 
+                maxBytes[level], size, bytesAlloc[level]);
+        return false;
     }
 
     // Allocate pages
@@ -239,10 +252,11 @@ bool ArielMemoryManager::allocateMalloc(const uint64_t size, const uint32_t leve
         nextVirtPage += pageSizes[level];
         lastPhysAddr = nextPhysPage;
     }
-    output->verbose(CALL_INFO, 4, 0, "Malloc mapped %" PRIu64 " to [%" PRIu64 ", %" PRIu64 "] (%u pages).\n", virtualAddress, firstPhysAddr, lastPhysAddr, pageCount);
+    output->verbose(CALL_INFO, 1, 0, "Malloc mapped %" PRIu64 " to [%" PRIu64 ", %" PRIu64 "] (%u pages).\n", virtualAddress, firstPhysAddr, lastPhysAddr, pageCount);
 
     // Record malloc
     mallocInformation.insert(std::make_pair(virtualAddress, mallocInfo(size,level,virtualPages))); 
+    bytesAlloc[level] += size;
 }
 
 void ArielMemoryManager::freeMalloc(const uint64_t virtualAddress) {
@@ -253,14 +267,17 @@ void ArielMemoryManager::freeMalloc(const uint64_t virtualAddress) {
         return;
     }
 
+    output->verbose(CALL_INFO, 1, 0, "Freeing malloc address %" PRIu64 "\n", virtualAddress);
     // Remove each VA listed in mallocInformation from mallocTranslations & mallocPrimaryVAMap
-    // Free each associated PA
+    bytesAlloc[(it->second).level] -= (it->second).size;
+    
+    // Free each associated PA -> TODO fix so this does things correctly (e.g., mapping stays but address is available for future mallocs)
     std::unordered_set<uint64_t>* myKeys = (it->second).VAKeys;
     for (std::unordered_set<uint64_t>::iterator vaIt = myKeys->begin(); vaIt != myKeys->end(); vaIt++) {
         // Remove entry in mallocPrimaryVAMap
         mallocPrimaryVAMap.erase(*vaIt);
         // Free PA for this VA
-        freePages[(it->second).level]->push_back(mallocTranslations.find(*vaIt)->second);
+        freePages[(it->second).level]->push_front(mallocTranslations.find(*vaIt)->second);
         mallocTranslations.erase(*vaIt);
     }
 
@@ -281,7 +298,7 @@ void ArielMemoryManager::free(uint64_t virtAddress) {
 		std::unordered_map<uint64_t, uint64_t>* level_allocations = pageAllocations[i];
 		auto level_check = level_allocations->find(virtAddress);
 
-		if(level_check != level_allocations->end()) {
+		if (level_check != level_allocations->end()) {
 			output->verbose(CALL_INFO, 4, 0, "Found entry for virtual address: %" PRIu64 " in the free process (level=%" PRIu32 ")\n",
 				virtAddress, i);
 
@@ -348,7 +365,6 @@ uint64_t ArielMemoryManager::translateAddress(uint64_t virtAddr) {
                 uint64_t offset = virtAddr - it->first;
                 physAddr = offset + it->second;
                 found = true;
-                output->verbose(CALL_INFO, 4, 0, "Page Table: malloc address match\n");
             }
         }
 

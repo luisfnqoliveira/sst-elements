@@ -29,7 +29,7 @@ namespace ArielComponent {
 class ArielMemoryManager {
 
 	public:
-		ArielMemoryManager(SST::Component* ownMe, uint32_t memoryLevels, uint64_t* pageSize, uint64_t* stdPageCount, Output* output,
+		ArielMemoryManager(SST::Component* ownMe, uint32_t memoryLevels, uint64_t* pageSize, uint64_t* maxBytes, uint64_t* stdPageCount, Output* output,
 			uint32_t defLevel, uint32_t translateCacheEntryCount);
 		~ArielMemoryManager();
 		bool canAllocateInLevel(const uint64_t size, const uint32_t level);
@@ -60,6 +60,8 @@ class ArielMemoryManager {
 		uint32_t defaultLevel;
 		uint32_t memoryLevels;
 		uint64_t* pageSizes;
+		uint64_t* bytesAlloc;
+                uint64_t* maxBytes;
 		std::deque<uint64_t>** freePages;
 		std::unordered_map<uint64_t, uint64_t>** pageAllocations;
 		std::unordered_map<uint64_t, uint64_t>** pageTables;
