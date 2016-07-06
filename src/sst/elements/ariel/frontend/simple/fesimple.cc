@@ -98,7 +98,15 @@ bool shouldOverride;
 // Map each location ID to the set of repeats that should go to fast mem
 set<int64_t> fastmemlocs;
 // Flag whether to send next intercept malloc to fast memory or not
-pair<bool,int> * toFast;
+struct mallocFlagInfo {
+    bool valid;
+    int count;
+    int level;
+    int id;
+    mallocFlagInfo(bool a, int b, int c, int d) : valid(a), count(b), level(c), id(d) {}
+};
+std::vector<mallocFlagInfo> toFast;
+
 
 /****************************************************************/
 /********************** SHADOW STACK ****************************/
@@ -551,24 +559,30 @@ void mapped_ariel_output_stats_buoy(uint64_t marker) {
 }
 
 
-void mapped_ariel_malloc_flag_fortran(int* mallocLocId, int* count) {
+void mapped_ariel_malloc_flag_fortran(int* mallocLocId, int* count, int* level) {
     THREADID thr = PIN_ThreadId();
     int64_t id = (int64_t) *mallocLocId;
     // Set malloc flag for this thread
     if (fastmemlocs.find(id) != fastmemlocs.end()) {
-        toFast[thr] = std::make_pair(true, *count);
+        toFast[thr].valid = true;
+        toFast[thr].count = *count;
+        toFast[thr].level = *level;
+        toFast[thr].id = id;
     } else {
-        toFast[thr].first = false;
+        toFast[thr].valid = false;
     }
 }
-void mapped_ariel_malloc_flag(int64_t mallocLocId, int count) {
+void mapped_ariel_malloc_flag(int64_t mallocLocId, int count, int level) {
     THREADID thr = PIN_ThreadId();
     
     // Set malloc flag for this thread
     if (fastmemlocs.find(mallocLocId) != fastmemlocs.end()) {
-        toFast[thr] = std::make_pair(true, count);
+        toFast[thr].valid = true;
+        toFast[thr].count = count;
+        toFast[thr].level = level;
+        toFast[thr].id = mallocLocId;
     } else {
-        toFast[thr].first = false;
+        toFast[thr].valid = false;
     }
 }
 
@@ -772,14 +786,20 @@ VOID ariel_postmalloc_instrument(ADDRINT allocLocation) {
         ac.mlm_map.alloc_len = allocationLength;
 
 
-        if (shouldOverride && toFast[thr].first) {
-            ac.mlm_map.alloc_level = (uint32_t) overridePool;
-            toFast[thr].second--;
-            if (toFast[thr].second == 0) {
-                toFast[thr].first = false;
+        if (UseMallocMap.Value() != "") {
+            if (toFast[thr].valid) {
+                ac.mlm_map.alloc_level = toFast[thr].level;
+                ac.instPtr = toFast[thr].id;
+                toFast[thr].count--;
+                if (toFast[thr].count == 0) {
+                    toFast[thr].valid = false;
+                }
+                tunnel->writeMessage(thr, ac);
             }
+        } else if (shouldOverride) {
+            ac.mlm_map.alloc_level = overridePool;
             tunnel->writeMessage(thr, ac);
-        } else if (InterceptMultiLevelMemory.Value() == 1) {
+        } else if (InterceptMultiLevelMemory.Value()) {
             ac.mlm_map.alloc_level = allocationLevel;
             tunnel->writeMessage(thr, ac);
         }
@@ -1031,12 +1051,10 @@ int main(int argc, char *argv[])
         TRACE_AddInstrumentFunction(InstrumentTrace, 0);
     if (UseMallocMap.Value() != "") {
         loadFastMemLocations();
-    } 
-    toFast = (std::pair<bool,int>*) malloc(sizeof(std::pair<bool,int>) * core_count);
-    for (int i = 0; i < core_count; i++) {
-        toFast[i] = std::make_pair(false,0);
+        for (int i = 0; i < core_count; i++) {
+            toFast.push_back(mallocFlagInfo(false, 0, 0, 0));;
+        }
     }
-
     fprintf(stderr, "ARIEL: Starting program.\n");
     fflush(stdout);
     PIN_StartProgram();
