@@ -42,6 +42,7 @@ void Sieve::recordMiss(Addr addr, bool isRead) {
             allocCountMap_t::iterator evI = allocMap.find(allocID);
             if (evI == allocMap.end()) {
                 allocMap[allocID] = rwCount_t();
+                evI = allocMap.find(allocID);
             }
             if (isRead) {
                 evI->second.first++;
